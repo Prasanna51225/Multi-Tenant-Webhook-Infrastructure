@@ -7,20 +7,22 @@ import (
 )
 
 type Config struct {
-	HTTPPort    string
-	DBURL       string
-	RedisURL    string
-	LogLevel    string
-	Environment string
+	HTTPPort     string
+	DBURL        string
+	RedisURL     string
+	KafkaBrokers string
+	LogLevel     string
+	Environment  string
 }
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		HTTPPort:    getEnv("HTTP_PORT", "8080"),
-		DBURL:       getEnv("DB_URL", "postgres://webhook:webhook@localhost:5432/webhook?sslmode=disable"),
-		RedisURL:    getEnv("REDIS_URL", "redis://localhost:6379/0"),
-		LogLevel:    getEnv("LOG_LEVEL", "info"),
-		Environment: getEnv("ENVIRONMENT", "development"),
+		HTTPPort:     getEnv("HTTP_PORT", "8080"),
+		DBURL:        getEnv("DB_URL", "postgres://webhook:webhook@localhost:5432/webhook?sslmode=disable"),
+		RedisURL:     getEnv("REDIS_URL", "redis://localhost:6379"),
+		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
+		LogLevel:     getEnv("LOG_LEVEL", "info"),
+		Environment:  getEnv("ENVIRONMENT", "development"),
 	}
 
 	if err := cfg.validate(); err != nil {

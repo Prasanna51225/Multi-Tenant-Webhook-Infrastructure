@@ -20,6 +20,7 @@ type Server struct {
 	logger      *slog.Logger
 	tenantSvc   service.TenantService
 	endpointSvc service.EndpointService
+	eventSvc    service.EventService
 	pool        *pgxpool.Pool
 	redis       *redis.Client
 }
@@ -28,6 +29,7 @@ func NewServer(
 	logger *slog.Logger,
 	tenantSvc service.TenantService,
 	endpointSvc service.EndpointService,
+	eventSvc service.EventService,
 	pool *pgxpool.Pool,
 	redis *redis.Client,
 ) *Server {
@@ -35,6 +37,7 @@ func NewServer(
 		logger:      logger,
 		tenantSvc:   tenantSvc,
 		endpointSvc: endpointSvc,
+		eventSvc:    eventSvc,
 		pool:        pool,
 		redis:       redis,
 	}
@@ -54,21 +57,19 @@ func (s *Server) setupRouter() {
 
 	tenantHandler := handler.NewTenantHandler(s.tenantSvc)
 	endpointHandler := handler.NewEndpointHandler(s.endpointSvc)
+	eventHandler := handler.NewEventHandler(s.eventSvc)
 	healthHandler := handler.NewHealthHandler(s.pool, s.redis)
 
 	r.Get("/healthz", healthHandler.Live)
 	r.Get("/readyz", healthHandler.Ready)
 
 	r.Route("/api/v1", func(r chi.Router) {
-		// Public routes — no auth required
-		r.Post("/tenants", tenantHandler.Create)
+		r.Mount("/tenants", tenantHandler.Routes())
 
-		// Authenticated routes — auth middleware applied
 		r.Group(func(r chi.Router) {
 			r.Use(apimw.Auth(s.tenantSvc.GetByAPIKey))
-			r.Get("/tenants/me", tenantHandler.GetMe)
-			r.Put("/tenants/me", tenantHandler.UpdateMe)
 			r.Mount("/endpoints", endpointHandler.Routes())
+			r.Mount("/events", eventHandler.Routes())
 		})
 	})
 
