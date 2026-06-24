@@ -113,6 +113,55 @@ func (r *EventRepo) UpdateStatus(ctx context.Context, id string, status string) 
 	return nil
 }
 
+func (r *EventRepo) UpdateForRetry(ctx context.Context, id string, status string, attemptCount int, nextRetryAt interface{}) error {
+	query := `
+        UPDATE events
+        SET status = $2, attempt_count = $3, next_retry_at = $4, updated_at = NOW()
+        WHERE id = $1
+    `
+
+	tag, err := r.pool.Exec(ctx, query, id, status, attemptCount, nextRetryAt)
+	if err != nil {
+		return fmt.Errorf("update event for retry: %w", err)
+	}
+
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+
+	return nil
+}
+
+func (r *EventRepo) FindRetryable(ctx context.Context, limit int) ([]*domain.Event, error) {
+	query := fmt.Sprintf(`
+        SELECT %s FROM events
+        WHERE status = 'retrying' AND next_retry_at <= NOW()
+        ORDER BY next_retry_at ASC
+        LIMIT $1
+    `, eventColumns)
+
+	rows, err := r.pool.Query(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("find retryable events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []*domain.Event
+	for rows.Next() {
+		e, err := r.scanEventRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, e)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate retryable events: %w", err)
+	}
+
+	return events, nil
+}
+
 func (r *EventRepo) scanEvent(ctx context.Context, row pgx.Row) (*domain.Event, error) {
 	var e domain.Event
 	err := row.Scan(

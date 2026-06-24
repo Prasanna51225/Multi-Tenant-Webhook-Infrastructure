@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -71,6 +72,32 @@ func (m *mockEventRepo) UpdateStatus(_ context.Context, id string, status string
 	}
 	e.Status = status
 	return nil
+}
+
+func (m *mockEventRepo) UpdateForRetry(_ context.Context, id string, status string, attemptCount int, nextRetryAt interface{}) error {
+	e, ok := m.events[id]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	e.Status = status
+	e.AttemptCount = attemptCount
+	if t, ok := nextRetryAt.(time.Time); ok {
+		e.NextRetryAt = &t
+	}
+	return nil
+}
+
+func (m *mockEventRepo) FindRetryable(_ context.Context, limit int) ([]*domain.Event, error) {
+	var result []*domain.Event
+	for _, e := range m.events {
+		if e.Status == domain.EventStatusRetrying && e.NextRetryAt != nil && e.NextRetryAt.Before(time.Now().UTC()) {
+			result = append(result, e)
+			if len(result) >= limit {
+				break
+			}
+		}
+	}
+	return result, nil
 }
 
 type mockPublisher struct {
