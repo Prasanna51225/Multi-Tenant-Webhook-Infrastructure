@@ -183,5 +183,4 @@ func matchEventType(pattern, eventType string) bool {
 	return pattern == eventType
 }
 
-// Ensure json.RawMessage is used
 var _ json.RawMessage
