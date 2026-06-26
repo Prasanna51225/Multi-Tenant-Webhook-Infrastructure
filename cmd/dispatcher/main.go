@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/webhook-platform/internal/kafka"
 	"github.com/webhook-platform/internal/repository/postgres"
@@ -55,6 +56,12 @@ func main() {
 	deliveryRepo := postgres.NewDeliveryAttemptRepo(pool)
 	deadLetterRepo := postgres.NewDeadLetterEventRepo(pool)
 
+	circuitBreakerRepo := redisRepo.NewCircuitBreakerRepo(rdb, 5, 60*time.Second)
+	circuitBreakerSvc := service.NewCircuitBreakerService(circuitBreakerRepo)
+
+	lockRepo := redisRepo.NewLockRepo(rdb)
+	endpointCache := redisRepo.NewEndpointCache(rdb)
+
 	dispatcher := service.NewDispatcherService(
 		eventRepo,
 		endpointRepo,
@@ -63,6 +70,9 @@ func main() {
 		deadLetterRepo,
 		consumer,
 		publisher,
+		circuitBreakerSvc,
+		lockRepo,
+		endpointCache,
 		log,
 	)
 

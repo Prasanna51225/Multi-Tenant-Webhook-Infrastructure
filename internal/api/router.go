@@ -8,21 +8,24 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
+	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/webhook-platform/internal/api/handler"
 	apimw "github.com/webhook-platform/internal/api/middleware"
+	redisrepo "github.com/webhook-platform/internal/repository/redis"
 	"github.com/webhook-platform/internal/service"
 )
 
 type Server struct {
-	router      chi.Router
-	logger      *slog.Logger
-	tenantSvc   service.TenantService
-	endpointSvc service.EndpointService
-	eventSvc    service.EventService
-	pool        *pgxpool.Pool
-	redis       *redis.Client
+	router         chi.Router
+	logger         *slog.Logger
+	tenantSvc      service.TenantService
+	endpointSvc    service.EndpointService
+	eventSvc       service.EventService
+	circuitBreaker service.CircuitBreakerService
+	rateLimiter    *redisrepo.RateLimiterRepo
+	pool           *pgxpool.Pool
+	rdb            *goredis.Client
 }
 
 func NewServer(
@@ -30,16 +33,20 @@ func NewServer(
 	tenantSvc service.TenantService,
 	endpointSvc service.EndpointService,
 	eventSvc service.EventService,
+	circuitBreaker service.CircuitBreakerService,
+	rateLimiter *redisrepo.RateLimiterRepo,
 	pool *pgxpool.Pool,
-	redis *redis.Client,
+	rdb *goredis.Client,
 ) *Server {
 	s := &Server{
-		logger:      logger,
-		tenantSvc:   tenantSvc,
-		endpointSvc: endpointSvc,
-		eventSvc:    eventSvc,
-		pool:        pool,
-		redis:       redis,
+		logger:         logger,
+		tenantSvc:      tenantSvc,
+		endpointSvc:    endpointSvc,
+		eventSvc:       eventSvc,
+		circuitBreaker: circuitBreaker,
+		rateLimiter:    rateLimiter,
+		pool:           pool,
+		rdb:            rdb,
 	}
 
 	s.setupRouter()
@@ -58,7 +65,7 @@ func (s *Server) setupRouter() {
 	tenantHandler := handler.NewTenantHandler(s.tenantSvc)
 	endpointHandler := handler.NewEndpointHandler(s.endpointSvc)
 	eventHandler := handler.NewEventHandler(s.eventSvc)
-	healthHandler := handler.NewHealthHandler(s.pool, s.redis)
+	healthHandler := handler.NewHealthHandler(s.pool, s.rdb)
 
 	r.Get("/healthz", healthHandler.Live)
 	r.Get("/readyz", healthHandler.Ready)
@@ -69,7 +76,11 @@ func (s *Server) setupRouter() {
 		r.Group(func(r chi.Router) {
 			r.Use(apimw.Auth(s.tenantSvc.GetByAPIKey))
 			r.Mount("/endpoints", endpointHandler.Routes())
-			r.Mount("/events", eventHandler.Routes())
+
+			r.Route("/events", func(r chi.Router) {
+				r.Use(apimw.RateLimit(s.rateLimiter))
+				r.Mount("/", eventHandler.Routes())
+			})
 		})
 	})
 

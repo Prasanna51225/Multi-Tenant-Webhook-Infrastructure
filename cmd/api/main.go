@@ -12,7 +12,8 @@ import (
 	"time"
 
 	"github.com/webhook-platform/internal/api"
-	kafkapkg "github.com/webhook-platform/internal/kafka"
+	grpcpkg "github.com/webhook-platform/internal/grpc"
+	"github.com/webhook-platform/internal/kafka"
 	"github.com/webhook-platform/internal/repository/postgres"
 	redisRepo "github.com/webhook-platform/internal/repository/redis"
 	"github.com/webhook-platform/internal/service"
@@ -45,9 +46,9 @@ func main() {
 	}
 	defer rdb.Close()
 
-	kafkaProducer := kafkapkg.NewProducer(
+	kafkaProducer := kafka.NewProducer(
 		[]string{cfg.KafkaBrokers},
-		kafkapkg.TopicEvents,
+		kafka.TopicEvents,
 		log,
 	)
 	defer kafkaProducer.Close()
@@ -56,11 +57,15 @@ func main() {
 	endpointRepo := postgres.NewEndpointRepo(pool)
 	eventRepo := postgres.NewEventRepo(pool)
 
+	circuitBreakerRepo := redisRepo.NewCircuitBreakerRepo(rdb, 5, 60*time.Second)
+	rateLimiterRepo := redisRepo.NewRateLimiterRepo(rdb)
+
 	tenantSvc := service.NewTenantService(tenantRepo)
 	endpointSvc := service.NewEndpointService(endpointRepo)
 	eventSvc := service.NewEventService(eventRepo, endpointRepo, kafkaProducer, log)
+	circuitBreakerSvc := service.NewCircuitBreakerService(circuitBreakerRepo)
 
-	srv := api.NewServer(log, tenantSvc, endpointSvc, eventSvc, pool, rdb)
+	srv := api.NewServer(log, tenantSvc, endpointSvc, eventSvc, circuitBreakerSvc, rateLimiterRepo, pool, rdb)
 
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf(":%s", cfg.HTTPPort),
@@ -75,6 +80,13 @@ func main() {
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("server error", slog.String("error", err.Error()))
 			os.Exit(1)
+		}
+	}()
+
+	grpcSrv := grpcpkg.NewWebhookInternalServer(endpointSvc, circuitBreakerSvc, log)
+	go func() {
+		if err := grpcpkg.StartGRPCServer(cfg.GRPCPort, grpcSrv, log); err != nil {
+			log.Error("grpc server error", slog.String("error", err.Error()))
 		}
 	}()
 

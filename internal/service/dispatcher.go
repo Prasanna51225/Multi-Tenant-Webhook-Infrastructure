@@ -15,30 +15,9 @@ import (
 	"github.com/webhook-platform/internal/delivery"
 	"github.com/webhook-platform/internal/domain"
 	kafkapkg "github.com/webhook-platform/internal/kafka"
+	"github.com/webhook-platform/internal/repository/redis"
 	"github.com/webhook-platform/pkg/retry"
 )
-
-type TenantLookup interface {
-	GetByID(ctx context.Context, id string) (*domain.Tenant, error)
-}
-
-type DeliveryAttemptRepository interface {
-	Create(ctx context.Context, attempt *domain.DeliveryAttempt) error
-}
-
-type DeadLetterEventRepository interface {
-	Create(ctx context.Context, event *domain.DeadLetterEvent) error
-}
-
-type KafkaConsumer interface {
-	FetchMessage(ctx context.Context) (kafka.Message, error)
-	CommitMessages(ctx context.Context, msgs ...kafka.Message) error
-	Close() error
-}
-
-type KafkaPublisher interface {
-	PublishEvent(ctx context.Context, eventID string, tenantID string, endpointID string, eventType string, payload []byte, signature string) error
-}
 
 type DispatcherService struct {
 	eventRepo      EventRepository
@@ -49,6 +28,9 @@ type DispatcherService struct {
 	consumer       KafkaConsumer
 	publisher      KafkaPublisher
 	webhookClient  *delivery.WebhookClient
+	circuitBreaker CircuitBreakerService
+	lockRepo       *redis.LockRepo
+	endpointCache  *redis.EndpointCache
 	logger         *slog.Logger
 }
 
@@ -60,6 +42,9 @@ func NewDispatcherService(
 	deadLetterRepo DeadLetterEventRepository,
 	consumer KafkaConsumer,
 	publisher KafkaPublisher,
+	circuitBreaker CircuitBreakerService,
+	lockRepo *redis.LockRepo,
+	endpointCache *redis.EndpointCache,
 	logger *slog.Logger,
 ) *DispatcherService {
 	return &DispatcherService{
@@ -71,6 +56,9 @@ func NewDispatcherService(
 		consumer:       consumer,
 		publisher:      publisher,
 		webhookClient:  delivery.NewWebhookClient(),
+		circuitBreaker: circuitBreaker,
+		lockRepo:       lockRepo,
+		endpointCache:  endpointCache,
 		logger:         logger,
 	}
 }
@@ -126,7 +114,27 @@ func (s *DispatcherService) processMessage(ctx context.Context, msg kafka.Messag
 		return nil
 	}
 
-	endpoint, err := s.endpointRepo.GetByID(ctx, event.EndpointID)
+	lockVal, locked := s.lockRepo.Acquire(ctx, "dispatch:"+event.ID, 5*time.Minute)
+	if !locked {
+		s.logger.Info("event already being processed, skipping", slog.String("event_id", event.ID))
+		return nil
+	}
+	defer s.lockRepo.Release(ctx, "dispatch:"+event.ID, lockVal)
+
+	allowed, cbState, err := s.circuitBreaker.Allow(ctx, event.EndpointID)
+	if err != nil {
+		s.logger.Error("circuit breaker check error", slog.String("error", err.Error()))
+	}
+	if !allowed {
+		s.logger.Warn("circuit breaker open, skipping delivery",
+			slog.String("event_id", event.ID),
+			slog.String("endpoint_id", event.EndpointID),
+			slog.String("cb_state", cbState),
+		)
+		return nil
+	}
+
+	endpoint, err := s.getEndpoint(ctx, event.EndpointID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			s.handleDeadLetter(ctx, event, "endpoint not found", 0)
@@ -158,14 +166,37 @@ func (s *DispatcherService) processMessage(ctx context.Context, msg kafka.Messag
 			slog.Int("status_code", result.StatusCode),
 			slog.Duration("duration", result.Duration),
 		)
+		s.circuitBreaker.RecordSuccess(ctx, event.EndpointID)
 		if err := s.eventRepo.UpdateStatus(ctx, event.ID, domain.EventStatusDelivered); err != nil {
 			s.logger.Error("update event status to delivered", slog.String("error", err.Error()))
 		}
 	} else {
+		s.circuitBreaker.RecordFailure(ctx, event.EndpointID)
 		s.handleFailure(ctx, event, result)
 	}
 
 	return nil
+}
+
+func (s *DispatcherService) getEndpoint(ctx context.Context, endpointID string) (*domain.Endpoint, error) {
+	cached, err := s.endpointCache.Get(ctx, endpointID)
+	if err != nil {
+		s.logger.Warn("cache get error, falling back to db", slog.String("error", err.Error()))
+	}
+	if cached != nil {
+		return cached, nil
+	}
+
+	endpoint, err := s.endpointRepo.GetByID(ctx, endpointID)
+	if err != nil {
+		return nil, err
+	}
+
+	if cacheErr := s.endpointCache.Set(ctx, endpoint); cacheErr != nil {
+		s.logger.Warn("cache set error", slog.String("error", cacheErr.Error()))
+	}
+
+	return endpoint, nil
 }
 
 func (s *DispatcherService) handleFailure(ctx context.Context, event *domain.Event, result delivery.DeliveryResult) {

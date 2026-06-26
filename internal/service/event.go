@@ -14,25 +14,6 @@ import (
 	"github.com/webhook-platform/internal/domain"
 )
 
-type EventRepository interface {
-	Create(ctx context.Context, event *domain.Event) error
-	GetByID(ctx context.Context, id string) (*domain.Event, error)
-	ListByTenantID(ctx context.Context, tenantID string, limit, offset int) ([]*domain.Event, error)
-	CountByTenantID(ctx context.Context, tenantID string) (int, error)
-	UpdateStatus(ctx context.Context, id string, status string) error
-	UpdateForRetry(ctx context.Context, id string, status string, attemptCount int, nextRetryAt interface{}) error
-	FindRetryable(ctx context.Context, limit int) ([]*domain.Event, error)
-}
-
-type EndpointLookup interface {
-	GetByID(ctx context.Context, id string) (*domain.Endpoint, error)
-}
-
-type EventPublisher interface {
-	PublishEvent(ctx context.Context, eventID string, tenantID string, endpointID string, eventType string, payload []byte, signature string) error
-	Close() error
-}
-
 type EventService interface {
 	Create(ctx context.Context, tenantID string, input domain.CreateEventInput) (*domain.Event, error)
 	GetByID(ctx context.Context, id string) (*domain.Event, error)
@@ -42,11 +23,11 @@ type EventService interface {
 type eventService struct {
 	eventRepo    EventRepository
 	endpointRepo EndpointLookup
-	publisher    EventPublisher
+	publisher    KafkaPublisher
 	logger       *slog.Logger
 }
 
-func NewEventService(eventRepo EventRepository, endpointRepo EndpointLookup, publisher EventPublisher, logger *slog.Logger) EventService {
+func NewEventService(eventRepo EventRepository, endpointRepo EndpointLookup, publisher KafkaPublisher, logger *slog.Logger) EventService {
 	return &eventService{
 		eventRepo:    eventRepo,
 		endpointRepo: endpointRepo,

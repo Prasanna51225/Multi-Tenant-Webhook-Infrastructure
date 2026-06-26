@@ -8,6 +8,7 @@ import (
 
 type Config struct {
 	HTTPPort     string
+	GRPCPort     string
 	DBURL        string
 	RedisURL     string
 	KafkaBrokers string
@@ -18,6 +19,7 @@ type Config struct {
 func Load() (*Config, error) {
 	cfg := &Config{
 		HTTPPort:     getEnv("HTTP_PORT", "8080"),
+		GRPCPort:     getEnv("GRPC_PORT", "50051"),
 		DBURL:        getEnv("DB_URL", "postgres://webhook:webhook@localhost:5432/webhook?sslmode=disable"),
 		RedisURL:     getEnv("REDIS_URL", "redis://localhost:6379"),
 		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),

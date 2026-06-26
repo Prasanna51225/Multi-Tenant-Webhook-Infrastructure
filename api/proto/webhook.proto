@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package webhook.v1;
+
+option go_package = "github.com/webhook-platform/internal/grpc/pb";
+
+service WebhookInternal {
+  rpc GetEndpoint(GetEndpointRequest) returns (GetEndpointResponse);
+  rpc GetCircuitBreakerState(GetCircuitBreakerStateRequest) returns (GetCircuitBreakerStateResponse);
+}
+
+message GetEndpointRequest {
+  string endpoint_id = 1;
+}
+
+message GetEndpointResponse {
+  string id = 1;
+  string tenant_id = 2;
+  string url = 3;
+  string secret = 4;
+  bool active = 5;
+  repeated string event_types = 6;
+}
+
+message GetCircuitBreakerStateRequest {
+  string endpoint_id = 1;
+}
+
+message GetCircuitBreakerStateResponse {
+  string state = 1;
+}

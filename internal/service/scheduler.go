@@ -8,26 +8,17 @@ import (
 	"github.com/webhook-platform/internal/domain"
 )
 
-type SchedulerEventRepository interface {
-	FindRetryable(ctx context.Context, limit int) ([]*domain.Event, error)
-	UpdateStatus(ctx context.Context, id string, status string) error
-}
-
-type SchedulerPublisher interface {
-	PublishEvent(ctx context.Context, eventID string, tenantID string, endpointID string, eventType string, payload []byte, signature string) error
-}
-
 type SchedulerService struct {
-	eventRepo SchedulerEventRepository
-	publisher SchedulerPublisher
+	eventRepo EventRepository
+	publisher KafkaPublisher
 	logger    *slog.Logger
 	interval  time.Duration
 	batchSize int
 }
 
 func NewSchedulerService(
-	eventRepo SchedulerEventRepository,
-	publisher SchedulerPublisher,
+	eventRepo EventRepository,
+	publisher KafkaPublisher,
 	logger *slog.Logger,
 ) *SchedulerService {
 	return &SchedulerService{
