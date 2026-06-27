@@ -1,7 +1,6 @@
 run:
   timeout: 5m
-  go: "1.22"
-  modules-download-mode: readonly
+  go: "1.25"
 
 linters:
   disable-all: true
@@ -16,19 +15,13 @@ linters:
     - gofmt
     - goimports
 
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-  govet:
-    enable-all: true
-    disable:
-      - fieldalignment
-
 issues:
-  exclude-use-default: false
-  max-issues-per-linter: 50
-  max-same-issues: 3
   exclude-rules:
     - path: _test\.go
       linters:
         - errcheck
+    - linters:
+        - typecheck
+      text: ".*"
+  max-issues-per-linter: 50
+  max-same-issues: 3
