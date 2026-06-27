@@ -14,6 +14,7 @@ import (
 	apimw "github.com/webhook-platform/internal/api/middleware"
 	redisrepo "github.com/webhook-platform/internal/repository/redis"
 	"github.com/webhook-platform/internal/service"
+	"github.com/webhook-platform/pkg/telemetry"
 )
 
 type Server struct {
@@ -58,6 +59,7 @@ func (s *Server) setupRouter() {
 
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
+	r.Use(apimw.Tracing)
 	r.Use(apimw.CORS)
 	r.Use(apimw.Logging(s.logger))
 	r.Use(middleware.Recoverer)
@@ -69,6 +71,7 @@ func (s *Server) setupRouter() {
 
 	r.Get("/healthz", healthHandler.Live)
 	r.Get("/readyz", healthHandler.Ready)
+	r.Handle("/metrics", telemetry.MetricsHandler())
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Mount("/tenants", tenantHandler.Routes())

@@ -12,6 +12,7 @@ import (
 
 	"github.com/webhook-platform/internal/delivery"
 	"github.com/webhook-platform/internal/domain"
+	"github.com/webhook-platform/pkg/telemetry"
 )
 
 type EventService interface {
@@ -103,6 +104,8 @@ func (s *eventService) Create(ctx context.Context, tenantID string, input domain
 			event.Status = domain.EventStatusQueued
 		}
 	}
+
+	telemetry.EventsPublished.WithLabelValues(tenantID, input.EventType).Inc()
 
 	return event, nil
 }

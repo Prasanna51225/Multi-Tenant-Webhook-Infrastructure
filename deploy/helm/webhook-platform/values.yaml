@@ -1,0 +1,70 @@
+replicaCount:
+  api: 3
+  dispatcher: 3
+  scheduler: 2
+
+image:
+  repository: webhook-platform
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  api:
+    type: ClusterIP
+    httpPort: 80
+    grpcPort: 50051
+  dispatcher:
+    type: ClusterIP
+  scheduler:
+    type: ClusterIP
+
+resources:
+  api:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  dispatcher:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  scheduler:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+autoscaling:
+  enabled: true
+  minReplicas:
+    api: 3
+    dispatcher: 3
+    scheduler: 2
+  maxReplicas:
+    api: 20
+    dispatcher: 30
+    scheduler: 10
+  targetCPUUtilizationPercentage: 70
+
+config:
+  HTTP_PORT: "8080"
+  GRPC_PORT: "50051"
+  DB_URL: "postgres://webhook:webhook@postgres:5432/webhook?sslmode=disable"
+  REDIS_URL: "redis:6379"
+  KAFKA_BROKERS: "kafka:9092"
+  OTLP_ENDPOINT: "jaeger:4317"
+  LOG_LEVEL: "info"
+  ENVIRONMENT: "production"
+
+ingress:
+  enabled: true
+  className: nginx
+  host: webhook.example.com
+  tls: true

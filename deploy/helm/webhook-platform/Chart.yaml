@@ -1,0 +1,6 @@
+apiVersion: v2
+name: webhook-platform
+description: Multi-tenant webhook delivery infrastructure
+type: application
+version: 1.0.0
+appVersion: "1.0.0"

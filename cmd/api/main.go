@@ -19,6 +19,7 @@ import (
 	"github.com/webhook-platform/internal/service"
 	"github.com/webhook-platform/pkg/config"
 	"github.com/webhook-platform/pkg/logger"
+	"github.com/webhook-platform/pkg/telemetry"
 )
 
 func main() {
@@ -31,6 +32,13 @@ func main() {
 	}
 
 	log := logger.New(cfg)
+
+	shutdown, err := telemetry.InitTracerProvider(ctx, cfg.OTLPEndpoint, cfg.ServiceName, log)
+	if err != nil {
+		log.Error("failed to init tracer", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	defer shutdown(ctx)
 
 	pool, err := postgres.NewPool(ctx, cfg.DBURL)
 	if err != nil {

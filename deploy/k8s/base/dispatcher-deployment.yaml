@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dispatcher
+  namespace: webhook-platform
+  labels:
+    app: dispatcher
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: dispatcher
+  template:
+    metadata:
+      labels:
+        app: dispatcher
+    spec:
+      containers:
+        - name: dispatcher
+          image: webhook-platform/dispatcher:latest
+          envFrom:
+            - configMapRef:
+                name: webhook-config
+          env:
+            - name: SERVICE_NAME
+              value: "webhook-dispatcher"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

@@ -17,6 +17,7 @@ import (
 	kafkapkg "github.com/webhook-platform/internal/kafka"
 	"github.com/webhook-platform/internal/repository/redis"
 	"github.com/webhook-platform/pkg/retry"
+	"github.com/webhook-platform/pkg/telemetry"
 )
 
 type DispatcherService struct {
@@ -97,6 +98,8 @@ func (s *DispatcherService) processMessage(ctx context.Context, msg kafka.Messag
 		return nil
 	}
 
+	telemetry.KafkaMessagesConsumed.WithLabelValues(msg.Topic, "dispatcher-group").Inc()
+
 	event, err := s.eventRepo.GetByID(ctx, eventMsg.EventID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
@@ -157,6 +160,8 @@ func (s *DispatcherService) processMessage(ctx context.Context, msg kafka.Messag
 
 	result := s.webhookClient.Deliver(ctx, endpoint.URL, event.Payload, headers)
 
+	telemetry.DeliveryDuration.WithLabelValues(event.EndpointID).Observe(result.Duration.Seconds())
+
 	s.recordAttempt(ctx, event, result)
 
 	if result.StatusCode >= 200 && result.StatusCode < 300 && result.Error == nil {
@@ -167,11 +172,13 @@ func (s *DispatcherService) processMessage(ctx context.Context, msg kafka.Messag
 			slog.Duration("duration", result.Duration),
 		)
 		s.circuitBreaker.RecordSuccess(ctx, event.EndpointID)
+		telemetry.EventsDelivered.WithLabelValues(event.EndpointID, strconv.Itoa(result.StatusCode)).Inc()
 		if err := s.eventRepo.UpdateStatus(ctx, event.ID, domain.EventStatusDelivered); err != nil {
 			s.logger.Error("update event status to delivered", slog.String("error", err.Error()))
 		}
 	} else {
 		s.circuitBreaker.RecordFailure(ctx, event.EndpointID)
+		telemetry.EventsFailed.WithLabelValues(event.EndpointID).Inc()
 		s.handleFailure(ctx, event, result)
 	}
 

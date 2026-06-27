@@ -12,6 +12,8 @@ type Config struct {
 	DBURL        string
 	RedisURL     string
 	KafkaBrokers string
+	OTLPEndpoint string
+	ServiceName  string
 	LogLevel     string
 	Environment  string
 }
@@ -23,6 +25,8 @@ func Load() (*Config, error) {
 		DBURL:        getEnv("DB_URL", "postgres://webhook:webhook@localhost:5432/webhook?sslmode=disable"),
 		RedisURL:     getEnv("REDIS_URL", "redis://localhost:6379"),
 		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
+		OTLPEndpoint: getEnv("OTLP_ENDPOINT", ""),
+		ServiceName:  getEnv("SERVICE_NAME", "webhook-api"),
 		LogLevel:     getEnv("LOG_LEVEL", "info"),
 		Environment:  getEnv("ENVIRONMENT", "development"),
 	}
